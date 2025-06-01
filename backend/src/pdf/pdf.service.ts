@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PDFDocumentProxy } from 'pdfjs-dist/types/src/display/api';
 import { OutlineType } from '../types/pdfjsTypes';
-import { ParsedQuestion } from '../types/ParsedQuestion';
+import { MCQuestion, ParsedQuestion } from '../types/ParsedQuestion';
 
 @Injectable()
 export class PdfService {
@@ -57,35 +57,49 @@ export class PdfService {
     }
   }
 
-  private parseExamQuestions(text: string): ParsedQuestion[] {
-    const cleaned = text
-      .replace(/chapter\s+\d+.*?questions?/gi, '')
-      .replace(/exam questions/gi, '')
-      .replace(/you are here.*?\d+\s+/gi, '')
-      .replace(/\s{2,}/g, ' ')
+
+  private parseExamQuestions(text: string): MCQuestion[] {
+    // 1. Làm sạch các phần đầu/trailer của trang
+    let cleaned = text
+      .replace(/Chapter\s+\d+\s+exam\s+questions?/i, '')
+      .replace(/Exam Questions/gi, '')
+      .replace(/you are here.*?\d+\s+[^\d]+/i, '')
+      .replace(/\s{2,}/g, ' ')        // nhiều space → một space
       .trim();
 
-    const blocks = cleaned.split(/(?=\d{1,3}\.\s)/g);
-    const results: ParsedQuestion[] = [];
+    // 2. Regex lần lượt khớp block “<num>. … A.… B.… C.… D.…”
+    const qRegex =
+      /(?:^|\s)(\d{1,3})\.\s+(.*?)\s+A\.\s+(.*?)\s+B\.\s+(.*?)\s+C\.\s+(.*?)\s+D\.\s+(.*?)(?=(?:\s+\d{1,3}\.\s)|$)/gs;
 
-    for (const block of blocks) {
-      const match = block.match(/^(\d{1,3})\.\s+(.*)/s);
-      if (!match) continue;
+    const questions: MCQuestion[] = [];
+    let match: RegExpExecArray | null;
 
-      const questionNumber = parseInt(match[1]);
-      const questionText = match[2].trim();
+    while ((match = qRegex.exec(cleaned)) !== null) {
+      const [
+        _full,
+        numStr,
+        qText,
+        choiceA,
+        choiceB,
+        choiceC,
+        choiceD
+      ] = match;
 
-      const choices: ParsedQuestion['choices'] = {};
-      const choiceMatches = [...block.matchAll(/([A-D])\.\s+(.*?)(?=\s+[A-D]\.\s|$)/gs)];
-      for (const [, label, content] of choiceMatches) {
-        const key = label as keyof typeof choices;
-        choices[key] = content.trim();
-      }
+      const question: MCQuestion = {
+        questionNumber: Number.parseInt(numStr, 10),
+        questionText: qText.trim(),
+        choices: {
+          A: choiceA.trim(),
+          B: choiceB.trim(),
+          C: choiceC.trim(),
+          D: choiceD.trim()
+        }
+      };
 
-      results.push({ questionNumber, questionText, choices });
+      questions.push(question);
     }
 
-    return results;
+    return questions;
   }
 
   private async loadPdf(pdfPath: string): Promise<PDFDocumentProxy> {
