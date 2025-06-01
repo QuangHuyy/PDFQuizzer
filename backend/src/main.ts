@@ -13,7 +13,9 @@ async function bootstrap() {
   const pdfService = app.get(PdfService);
 
   const pdfPath = path.join(__dirname, '..', headFirstFileName);
-  await pdfService.extractTableOfContents(pdfPath);
+  // await pdfService.extractTableOfContents(pdfPath);
+  const title = '2: The organizational environment';
+  await pdfService.extractChapterExamContent(pdfPath, title);
 
   await app.close();
 }
