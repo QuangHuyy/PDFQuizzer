@@ -1,15 +1,21 @@
 {
   "compilerOptions": {
     "module": "commonjs",
-    "target": "es2017",
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
+    "target": "es2019",
+    "lib": [
+      "es2019"
+    ],
+    "outDir": "dist",
+    "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
     "moduleResolution": "node",
-    "types": ["node"],
-    "outDir": "./dist"
+    "types": ["node", "jest"],
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "__tests__"
+  ]
 }

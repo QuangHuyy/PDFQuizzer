@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PDFDocumentProxy } from 'pdfjs-dist/types/src/display/api';
 import { OutlineType } from '../types/pdfjsTypes';
-import { MCAnswer, MCQuestion, ParsedQuestion } from '../types/ParsedQuestion';
+import { MCAnswer, MCQuestion } from '../types/ParsedQuestion';
 
 @Injectable()
 export class PdfService {
@@ -143,7 +143,7 @@ export class PdfService {
   /**
    * Nhận chuỗi text từ phần “Exam Answers”, trả về Map<num, MCAnswer>
    */
-  private parseExamAnswers(text: string): Map<number, MCAnswer> {
+  parseExamAnswers(text: string): Map<number, MCAnswer> {
     const cleaned = this.cleanAnswerBlock(text);
 
     // <num>. Answer: <Letter> <giải thích>  (đến câu tiếp theo hoặc hết)
@@ -162,7 +162,7 @@ export class PdfService {
     }
     return answers;
   }
-  private mergeQnA(
+  mergeQnA(
     questions: MCQuestion[],
     answerMap: Map<number, MCAnswer>
   ): MCQuestion[] {
@@ -172,7 +172,7 @@ export class PdfService {
     }));
   }
 
-  private parseExamQuestions(text: string): MCQuestion[] {
+  parseExamQuestions(text: string): MCQuestion[] {
     // 1. Làm sạch các phần đầu/trailer của trang
     let cleaned = text
       .replace(/Chapter\s+\d+\s+exam\s+questions?/i, '')

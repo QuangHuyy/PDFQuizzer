@@ -2,3 +2,4 @@ node_modules
 *.pdf
 *.lock
 *.zip
+coverage/
