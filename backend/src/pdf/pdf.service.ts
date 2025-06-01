@@ -3,30 +3,13 @@ import * as fs from 'fs';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PDFDocumentProxy } from 'pdfjs-dist/types/src/display/api';
 import { OutlineType } from '../types/pdfjsTypes';
-import { MCAnswer, MCQuestion } from '../types/ParsedQuestion';
+import { MCQuestion } from '../types/ParsedQuestion';
+import { mergeQnA, parseExamAnswers, parseExamQuestions } from './pdf.utils';
 
 @Injectable()
 export class PdfService {
 
-  private findOutlineItem(
-    outline: OutlineType[],
-    title: string,
-  ): OutlineType | undefined {
-    for (const item of outline) {
-      if ((item.title ?? '').trim() === title.trim()) return item;
-      if (item.items?.length) {
-        const found = this.findOutlineItem(item.items, title);
-        if (found) return found;
-      }
-    }
-    return undefined;
-  }
-
-  async extractTableOfContents(pdfPath: string): Promise<void | OutlineType[]> {
-    const rawData = new Uint8Array(fs.readFileSync(pdfPath));
-    const loadingTask = pdfjsLib.getDocument({ data: rawData });
-    const pdf: PDFDocumentProxy = await loadingTask.promise;
-
+  async extractTableOfContents(pdf: PDFDocumentProxy): Promise<void | OutlineType[]> {
     const outline: OutlineType[] = await pdf.getOutline();
     if (!outline || outline.length === 0) {
       console.log('⚠️ Không tìm thấy TOC (Outline) trong file PDF');
@@ -49,7 +32,7 @@ export class PdfService {
     const pdf = await this.loadPdf(pdfPath);
 
     /* 2 ▸ Lấy outline và node chương */
-    const outline = await this.extractTableOfContents(pdfPath);
+    const outline = await this.extractTableOfContents(pdf);
     if (!outline) throw new Error('⚠️  PDF không có TOC / Outline');
 
     const chapterNode = this.findOutlineItem(outline, chapterTitle);
@@ -85,12 +68,29 @@ export class PdfService {
     ]);
 
     /* 6 ▸ Parse */
-    const questions: MCQuestion[] = this.parseExamQuestions(qText);
-    const answers = this.parseExamAnswers(aText);
-    const full = this.mergeQnA(questions, answers);
+    const questions: MCQuestion[] = parseExamQuestions(qText);
+    const answers = parseExamAnswers(aText);
+    const full = mergeQnA(questions, answers);
 
     /* 7 ▸ Log kết quả */
     console.log(JSON.stringify(full, null, 2));
+  }
+  parseExamAnswers(aText: string) {
+    throw new Error('Method not implemented.');
+  }
+
+  private findOutlineItem(
+    outline: OutlineType[],
+    title: string,
+  ): OutlineType | undefined {
+    for (const item of outline) {
+      if ((item.title ?? '').trim() === title.trim()) return item;
+      if (item.items?.length) {
+        const found = this.findOutlineItem(item.items, title);
+        if (found) return found;
+      }
+    }
+    return undefined;
   }
 
   private async getPageFromDest(pdf: PDFDocumentProxy, dest: string | any[]): Promise<number> {
@@ -130,96 +130,9 @@ export class PdfService {
     return text.replace(/\s{2,}/g, ' ').trim();
   }
 
-  // Loại bỏ header/footer không mong muốn
-  private cleanAnswerBlock(raw: string): string {
-    return raw
-      .replace(/Chapter\s+\d+\s+exam\s+answers?/i, '')
-      .replace(/Exam Questions\s+Answers/gi, '')
-      .replace(/you are here\s+\d+\s+\d+\s+[^\d]+/gi, '')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-  }
-
-  /**
-   * Nhận chuỗi text từ phần “Exam Answers”, trả về Map<num, MCAnswer>
-   */
-  parseExamAnswers(text: string): Map<number, MCAnswer> {
-    const cleaned = this.cleanAnswerBlock(text);
-
-    // <num>. Answer: <Letter> <giải thích>  (đến câu tiếp theo hoặc hết)
-    const aRegex =
-      /(?:^|\s)(\d{1,3})\.\s+Answer:\s+([A-D])\s+(.*?)(?=(?:\s+\d{1,3}\.\s+Answer)|$)/gs;
-
-    const answers = new Map<number, MCAnswer>();
-    let m: RegExpExecArray | null;
-
-    while ((m = aRegex.exec(cleaned)) !== null) {
-      const [, numStr, choice, explain] = m;
-      answers.set(Number(numStr), {
-        correctChoice: choice as MCAnswer['correctChoice'],
-        explanation: explain.trim()
-      });
-    }
-    return answers;
-  }
-  mergeQnA(
-    questions: MCQuestion[],
-    answerMap: Map<number, MCAnswer>
-  ): MCQuestion[] {
-    return questions.map(q => ({
-      ...q,
-      answer: answerMap.get(q.questionNumber)
-    }));
-  }
-
-  parseExamQuestions(text: string): MCQuestion[] {
-    // 1. Làm sạch các phần đầu/trailer của trang
-    let cleaned = text
-      .replace(/Chapter\s+\d+\s+exam\s+questions?/i, '')
-      .replace(/Exam Questions/gi, '')
-      .replace(/you are here.*?\d+\s+[^\d]+/i, '')
-      .replace(/\s{2,}/g, ' ')        // nhiều space → một space
-      .trim();
-
-    // 2. Regex lần lượt khớp block “<num>. … A.… B.… C.… D.…”
-    const qRegex =
-      /(?:^|\s)(\d{1,3})\.\s+(.*?)\s+A\.\s+(.*?)\s+B\.\s+(.*?)\s+C\.\s+(.*?)\s+D\.\s+(.*?)(?=(?:\s+\d{1,3}\.\s)|$)/gs;
-
-    const questions: MCQuestion[] = [];
-    let match: RegExpExecArray | null;
-
-    while ((match = qRegex.exec(cleaned)) !== null) {
-      const [
-        _full,
-        numStr,
-        qText,
-        choiceA,
-        choiceB,
-        choiceC,
-        choiceD
-      ] = match;
-
-      const question: MCQuestion = {
-        questionNumber: Number.parseInt(numStr, 10),
-        questionText: qText.trim(),
-        choices: {
-          A: choiceA.trim(),
-          B: choiceB.trim(),
-          C: choiceC.trim(),
-          D: choiceD.trim()
-        }
-      };
-
-      questions.push(question);
-    }
-
-    return questions;
-  }
-
   private async loadPdf(pdfPath: string): Promise<PDFDocumentProxy> {
     const rawData = new Uint8Array(fs.readFileSync(pdfPath));
     const loadingTask = pdfjsLib.getDocument({ data: rawData });
     return await loadingTask.promise;
   }
-
 }
