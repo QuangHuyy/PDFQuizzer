@@ -3,13 +3,26 @@ import * as fs from 'fs';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PDFDocumentProxy } from 'pdfjs-dist/types/src/display/api';
 import { OutlineType } from '../types/pdfjsTypes';
-import { MCQuestion, ParsedQuestion } from '../types/ParsedQuestion';
+import { MCAnswer, MCQuestion, ParsedQuestion } from '../types/ParsedQuestion';
 
 @Injectable()
 export class PdfService {
-  async extractTableOfContents(pdfPath: string): Promise<void> {
-    console.log('pdfPath', pdfPath);
 
+  private findOutlineItem(
+    outline: OutlineType[],
+    title: string,
+  ): OutlineType | undefined {
+    for (const item of outline) {
+      if ((item.title ?? '').trim() === title.trim()) return item;
+      if (item.items?.length) {
+        const found = this.findOutlineItem(item.items, title);
+        if (found) return found;
+      }
+    }
+    return undefined;
+  }
+
+  async extractTableOfContents(pdfPath: string): Promise<void | OutlineType[]> {
     const rawData = new Uint8Array(fs.readFileSync(pdfPath));
     const loadingTask = pdfjsLib.getDocument({ data: rawData });
     const pdf: PDFDocumentProxy = await loadingTask.promise;
@@ -21,42 +34,143 @@ export class PdfService {
     }
 
     console.log(`✅ Đã tìm thấy ${outline.length} mục trong TOC:\n`);
-    console.log('Outline 1', outline[1]);
-    // outline.forEach((item: OutlineType, index: number) => {
-    //   console.log(`${item.title}`, item.items[0]);
-    //   // console.log(`${index + 1}. ${item.title}`);
-    // });
+    outline.forEach((item: OutlineType, index: number) => {
+      console.log(`${index + 1}. ${item.title}`);
+    });
+
+    return outline;
   }
 
-  async extractChapterExamContent(pdfPath: string, chapterTitle: string): Promise<void> {
+  async extractChapterExamContent(
+    pdfPath: string,
+    chapterTitle: string,
+  ): Promise<void> {
+    /* 1 ▸ Nạp tài liệu */
     const pdf = await this.loadPdf(pdfPath);
-    const outline: OutlineType[] | null = await pdf.getOutline();
-    const chapterItem: OutlineType | undefined = outline?.find((item) => item.title === chapterTitle);
-    if (!chapterItem || !chapterItem.items) {
-      console.log(`⚠️ Không tìm thấy chương "${chapterTitle}" hoặc chương không có mục con.`);
+
+    /* 2 ▸ Lấy outline và node chương */
+    const outline = await this.extractTableOfContents(pdfPath);
+    if (!outline) throw new Error('⚠️  PDF không có TOC / Outline');
+
+    const chapterNode = this.findOutlineItem(outline, chapterTitle);
+    if (!chapterNode) throw new Error(`⚠️  Không tìm thấy chapter "${chapterTitle}"`);
+
+    /* 3 ▸ Lấy node Questions & Answers */
+    const qNode = chapterNode.items?.find((n) =>
+      /^exam\s+questions?/i.test(n.title ?? ''),
+    );
+    const aNode = chapterNode.items?.find((n) =>
+      /^exam\s+answers?/i.test(n.title ?? ''),
+    );
+    if (!qNode || !aNode || !qNode.dest || !aNode.dest) {
+      console.log('⚠️  Chapter không có Exam Questions / Answers');
       return;
     }
 
-    for (const label of ['exam questions']) {
-      const item: OutlineType | undefined = chapterItem.items.find((i) =>
-        i.title.toLowerCase().includes(label)
-      );
-      if (item && item.dest) {
-        const startPage = await this.getPageFromDest(pdf, item.dest);
-        if (startPage === -1) {
-          console.warn(`⚠️ Không xác định được trang bắt đầu cho "${label}"`);
-          continue;
-        }
-        const endPage = await this.findNextOutlinePage(pdf, outline, startPage);
-        const fullText = await this.extractFullText(pdf, startPage, endPage);
-        const questions: ParsedQuestion[] = this.parseExamQuestions(fullText);
-        console.log(questions);
+    /* 4 ▸ Tính range trang */
+    const qStart = await this.getPageFromDest(pdf, qNode.dest);
+    const aStart = await this.getPageFromDest(pdf, aNode.dest);
+    const qEnd = aStart - 1;
+
+    const idxAnswers = chapterNode.items!.indexOf(aNode);
+    const nextSibling = chapterNode.items![idxAnswers + 1];
+    const aEnd = nextSibling && nextSibling.dest
+      ? (await this.getPageFromDest(pdf, nextSibling.dest)) - 1
+      : pdf.numPages;
+
+    /* 5 ▸ Extract文本 */
+    const [qText, aText] = await Promise.all([
+      this.extractRangeText(pdf, qStart, qEnd),
+      this.extractRangeText(pdf, aStart, aEnd),
+    ]);
+
+    /* 6 ▸ Parse */
+    const questions: MCQuestion[] = this.parseExamQuestions(qText);
+    const answers = this.parseExamAnswers(aText);
+    const full = this.mergeQnA(questions, answers);
+
+    /* 7 ▸ Log kết quả */
+    console.log(JSON.stringify(full, null, 2));
+  }
+
+  private async getPageFromDest(pdf: PDFDocumentProxy, dest: string | any[]): Promise<number> {
+    try {
+      let ref;
+      if (Array.isArray(dest)) {
+        ref = dest[0];
       } else {
-        console.log(`⚠️ Không tìm thấy mục "${label}" trong chương "${chapterTitle}"`);
+        const resolved = await pdf.getDestination(dest);
+        if (!resolved || !Array.isArray(resolved) || !resolved[0]) {
+          throw new Error("Invalid resolved destination.");
+        }
+        ref = resolved[0];
       }
+      const pageIndex: number = await pdf.getPageIndex(ref);
+      return pageIndex + 1;
+    } catch (error) {
+      console.error("❌ Lỗi khi lấy trang từ dest:", error);
+      return -1;
     }
   }
 
+  private async extractRangeText(
+    pdf: PDFDocumentProxy,
+    start: number,
+    end: number,
+  ): Promise<string> {
+    let text = '';
+    for (let i = start; i <= end; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map((it: any) => it.str)
+        .join(' ');
+      text += ` ${pageText}`;
+    }
+    return text.replace(/\s{2,}/g, ' ').trim();
+  }
+
+  // Loại bỏ header/footer không mong muốn
+  private cleanAnswerBlock(raw: string): string {
+    return raw
+      .replace(/Chapter\s+\d+\s+exam\s+answers?/i, '')
+      .replace(/Exam Questions\s+Answers/gi, '')
+      .replace(/you are here\s+\d+\s+\d+\s+[^\d]+/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  /**
+   * Nhận chuỗi text từ phần “Exam Answers”, trả về Map<num, MCAnswer>
+   */
+  private parseExamAnswers(text: string): Map<number, MCAnswer> {
+    const cleaned = this.cleanAnswerBlock(text);
+
+    // <num>. Answer: <Letter> <giải thích>  (đến câu tiếp theo hoặc hết)
+    const aRegex =
+      /(?:^|\s)(\d{1,3})\.\s+Answer:\s+([A-D])\s+(.*?)(?=(?:\s+\d{1,3}\.\s+Answer)|$)/gs;
+
+    const answers = new Map<number, MCAnswer>();
+    let m: RegExpExecArray | null;
+
+    while ((m = aRegex.exec(cleaned)) !== null) {
+      const [, numStr, choice, explain] = m;
+      answers.set(Number(numStr), {
+        correctChoice: choice as MCAnswer['correctChoice'],
+        explanation: explain.trim()
+      });
+    }
+    return answers;
+  }
+  private mergeQnA(
+    questions: MCQuestion[],
+    answerMap: Map<number, MCAnswer>
+  ): MCQuestion[] {
+    return questions.map(q => ({
+      ...q,
+      answer: answerMap.get(q.questionNumber)
+    }));
+  }
 
   private parseExamQuestions(text: string): MCQuestion[] {
     // 1. Làm sạch các phần đầu/trailer của trang
@@ -108,59 +222,4 @@ export class PdfService {
     return await loadingTask.promise;
   }
 
-  private async getPageFromDest(pdf: PDFDocumentProxy, dest: string | any[]): Promise<number> {
-    try {
-      let ref;
-      if (Array.isArray(dest)) {
-        ref = dest[0];
-      } else {
-        const resolved = await pdf.getDestination(dest);
-        if (!resolved || !Array.isArray(resolved) || !resolved[0]) {
-          throw new Error("Invalid resolved destination.");
-        }
-        ref = resolved[0];
-      }
-      const pageIndex: number = await pdf.getPageIndex(ref);
-      return pageIndex + 1;
-    } catch (error) {
-      console.error("❌ Lỗi khi lấy trang từ dest:", error);
-      return -1;
-    }
-  }
-
-  private async extractTextFromPage(pdf: PDFDocumentProxy, pageNum: number): Promise<string> {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
-    return content.items.map((item: any) => item.str).join(' ');
-  }
-
-  private async extractFullText(pdf: PDFDocumentProxy, startPage: number, endPage: number): Promise<string> {
-    const chunks: string[] = [];
-    for (let i = startPage; i < endPage; i++) {
-      const text = await this.extractTextFromPage(pdf, i);
-      chunks.push(text);
-    }
-    return chunks.join(' ');
-  }
-
-  private async findNextOutlinePage(
-    pdf: PDFDocumentProxy,
-    outline: OutlineType[],
-    startPage: number
-  ): Promise<number> {
-    const pageNumbers: number[] = [];
-
-    const collectPages = async (items: OutlineType[]): Promise<void> => {
-      for (const item of items) {
-        if (item.dest) {
-          const page = await this.getPageFromDest(pdf, item.dest);
-          if (page > startPage) pageNumbers.push(page);
-        }
-        if (item.items) await collectPages(item.items);
-      }
-    };
-
-    await collectPages(outline || []);
-    return Math.min(...pageNumbers.filter((p) => p > startPage), pdf.numPages + 1);
-  }
 }

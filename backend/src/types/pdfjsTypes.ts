@@ -8,5 +8,5 @@ export type OutlineType = {
     unsafeUrl: string | undefined;
     newWindow: boolean | undefined;
     count: number | undefined;
-    items: Array<any>;
+    items: Array<OutlineType>;
 }
