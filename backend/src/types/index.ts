@@ -1,2 +1,2 @@
-export * from './pdfjsTypes'
-export * from './ParsedQuestion'
+export * from './pdfjsTypes.js'
+export * from './ParsedQuestion.js'

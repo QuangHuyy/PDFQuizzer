@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { PDFDocumentProxy } from 'pdfjs-dist/types/src/display/api';
-import { OutlineType } from '../types/pdfjsTypes';
-import { MCQuestion } from '../types/ParsedQuestion';
-import { mergeQnA, parseExamAnswers, parseExamQuestions } from './pdf.utils';
+import { PDFDocumentProxy } from 'pdfjs-dist/types/src/display/api.js';
+import { OutlineType } from '../types/pdfjsTypes.js';
+import { MCQuestion } from '../types/ParsedQuestion.js';
+import { mergeQnA, parseExamAnswers, parseExamQuestions } from './pdf.utils.js';
 
 @Injectable()
 export class PdfService {
