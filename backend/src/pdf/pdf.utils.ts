@@ -1,4 +1,4 @@
-import { MCAnswer, MCQuestion } from "../types";
+import { MCAnswer, MCQuestion } from "../types/index.js";
 
 // Loại bỏ header/footer không mong muốn
 export const cleanAnswerBlock = (raw: string): string => {

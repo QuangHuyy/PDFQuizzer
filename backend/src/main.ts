@@ -1,9 +1,12 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { PdfService } from './pdf/pdf.service';
-import * as path from 'path';
+import { AppModule } from './app.module.js';
+import { PdfService } from './pdf/pdf.service.js';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import path from 'path';
 
-declare const __dirname: string;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const ritaFileName = "[Should_Read] Rita PMP 10 - Bookmarked .pdf"
 const headFirstFileName = "Head First PMP 04.pdf"
 const simplifiedFileName = "Pmp Exam Prep Simplified (Andrew Ramdayal).pdf"
