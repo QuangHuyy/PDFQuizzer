@@ -11,23 +11,24 @@ export const cleanAnswerBlock = (raw: string): string => {
 }
 
 /**
- * Nhận chuỗi text từ phần “Exam Answers”, trả về Map<num, MCAnswer>
+ * Nhận chuỗi text từ phần "Exam Answers", trả về Map<num, MCAnswer>
  */
 export const parseExamAnswers = (text: string): Map<number, MCAnswer> => {
   const cleaned = cleanAnswerBlock(text);
 
-  // <num>. Answer: <Letter> <giải thích>  (đến câu tiếp theo hoặc hết)
+  // <num>. [Answer: ]<Letter> [<giải thích>]  (đến câu tiếp theo hoặc hết)
   const aRegex =
-    /(?:^|\s)(\d{1,3})\.\s+Answer:\s+([A-D])\s+(.*?)(?=(?:\s+\d{1,3}\.\s+Answer)|$)/gs;
+    /(?:^|\s)(\d{1,3})\.\s*(?:Answer:\s*)?([A-D])[.)]?(?:\s*(.*?))?(?=(?:\s+\d{1,3}\.\s*(?:Answer:\s*)?)|$)/gs;
 
   const answers = new Map<number, MCAnswer>();
   let m: RegExpExecArray | null;
 
   while ((m = aRegex.exec(cleaned)) !== null) {
-    const [, numStr, choice, explain] = m;
+    const [, numStr, choice, explain = ''] = m;
+    const explanation = explain ? explain.trim() : '';
     answers.set(Number(numStr), {
       correctChoice: choice as MCAnswer['correctChoice'],
-      explanation: explain.trim()
+      explanation
     });
   }
   return answers;
@@ -52,9 +53,9 @@ export const parseExamQuestions = (text: string): MCQuestion[] => {
     .replace(/\s{2,}/g, ' ')        // nhiều space → một space
     .trim();
 
-  // 2. Regex lần lượt khớp block “<num>. … A.… B.… C.… D.…”
+  // 2. Regex lần lượt khớp block "<num>. … A.… B.… C.… D.…"
   const qRegex =
-    /(?:^|\s)(\d{1,3})\.\s+(.*?)\s+A\.\s+(.*?)\s+B\.\s+(.*?)\s+C\.\s+(.*?)\s+D\.\s+(.*?)(?=(?:\s+\d{1,3}\.\s)|$)/gs;
+    /(?:^|\s)(\d{1,3})\.\s+(.*?)\s+A[.)]?\s+(.*?)\s+B[.)]?\s+(.*?)\s+C[.)]?\s+(.*?)\s+D[.)]?\s+(.*?)(?=(?:\s+\d{1,3}\.\s)|$)/gs;
 
   const questions: MCQuestion[] = [];
   let match: RegExpExecArray | null;
