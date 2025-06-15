@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
+import * as pdfjsLib from 'pdfjs-dist';
 import * as fs from 'fs';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { join } from 'path';
 import { PDFDocumentProxy } from 'pdfjs-dist/types/src/display/api.js';
 import { OutlineType } from '../types/pdfjsTypes.js';
 import { MCQuestion } from '../types/ParsedQuestion.js';
@@ -8,6 +9,69 @@ import { mergeQnA, parseExamAnswers, parseExamQuestions } from './pdf.utils.js';
 
 @Injectable()
 export class PdfService {
+
+  private async loadPDF(filePath: string) {
+    try {
+      const data = new Uint8Array(fs.readFileSync(filePath));
+      const doc = await pdfjsLib.getDocument({ data }).promise;
+      return doc;
+    } catch (error) {
+      throw new BadRequestException('Failed to load PDF file');
+    }
+  }
+
+  async extractTableOfContents(filePath: string) {
+    const pdfDocument = await this.loadPDF(filePath);
+    const outline = await pdfDocument.getOutline();
+    
+    if (!outline) {
+      return [];
+    }
+
+    return outline.map(item => ({
+      title: item.title,
+      pageNumber: item.dest ? item.dest[0].num : null,
+      children: item.items || []
+    }));
+  }
+
+  async extractChapterExamContent(filePath: string, chapterNumber: number) {
+    const pdfDocument = await this.loadPDF(filePath);
+    const pageCount = pdfDocument.numPages;
+    let examContent = [];
+
+    for (let i = 1; i <= pageCount; i++) {
+      const page = await pdfDocument.getPage(i);
+      const textContent = await page.getTextContent();
+      const text = textContent.items.map(item => 'str' in item ? item.str : '').join(' ');
+
+      // Look for exam questions in the specified chapter
+      // This is a simplified example - you'll need to implement your actual logic here
+      if (text.includes(`Chapter ${chapterNumber}`) && text.includes('Question')) {
+        examContent.push({
+          pageNumber: i,
+          content: text
+        });
+      }
+    }
+
+    return examContent;
+  }
+
+  async savePDFFile(file: Express.Multer.File): Promise<string> {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    // In a real application, you would:
+    // 1. Validate the file is actually a PDF
+    // 2. Generate a unique filename
+    // 3. Save to a proper storage solution (e.g., S3, local filesystem with proper path)
+    // 4. Return the file path or identifier
+
+    // For now, we'll assume the file is saved and return its path
+    return file.path;
+  }
 
   async extractTableOfContents(pdf: PDFDocumentProxy): Promise<void | OutlineType[]> {
     const outline: OutlineType[] = await pdf.getOutline();
@@ -29,7 +93,7 @@ export class PdfService {
     chapterTitle: string,
   ): Promise<void> {
     /* 1 ▸ Nạp tài liệu */
-    const pdf = await this.loadPdf(pdfPath);
+    const pdf = await this.loadPDF(pdfPath);
 
     /* 2 ▸ Lấy outline và node chương */
     const outline = await this.extractTableOfContents(pdf);
@@ -128,11 +192,5 @@ export class PdfService {
       text += ` ${pageText}`;
     }
     return text.replace(/\s{2,}/g, ' ').trim();
-  }
-
-  private async loadPdf(pdfPath: string): Promise<PDFDocumentProxy> {
-    const rawData = new Uint8Array(fs.readFileSync(pdfPath));
-    const loadingTask = pdfjsLib.getDocument({ data: rawData });
-    return await loadingTask.promise;
   }
 }

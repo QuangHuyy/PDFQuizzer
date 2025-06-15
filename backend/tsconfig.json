@@ -1,21 +1,25 @@
 {
   "compilerOptions": {
-    "module": "ESNext",
-    "target": "ES2020",
-    "moduleResolution": "NodeNext", // ESM-compatible resolution
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
+    "target": "ES2021",
     "sourceMap": true,
     "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "resolveJsonModule": true,
+    "baseUrl": "./",
+    "incremental": true,
     "skipLibCheck": true,
-    "lib": [
-      "ES2020"
-    ],
+    "strictNullChecks": false,
+    "noImplicitAny": false,
+    "strictBindCallApply": false,
+    "forceConsistentCasingInFileNames": false,
+    "noFallthroughCasesInSwitch": false,
     "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "types": ["node"],
+    "moduleResolution": "node",
+    "resolveJsonModule": true
   },
   "ts-node": {
     "esm": true,
